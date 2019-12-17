@@ -1,0 +1,70 @@
+pipeline {
+    agent any
+    stages {
+        stage("get-updates-from-dev"){
+            steps {
+                sshagent (credentials: ['e91user']) {
+                    
+                    echo "Pulling  from dev"
+                    sh "ssh -o StrictHostKeyChecking=no root@3.83.236.235 'cd /home/e91user/e91test && git checkout . && git checkout dev && git pull'"
+                }
+                sleep 2
+            }
+        }
+        stage("build-dev-environment"){
+            steps {
+                sshagent (credentials: ['e91user']) {
+                    echo "Stopping dev container if exists and delete it" 
+                    sh "ssh -o StrictHostKeyChecking=no root@3.83.236.235 ' docker stop dev || true && docker rm dev || true ' "
+                    echo "Building  dev docker/container image"
+                    sh "ssh -o StrictHostKeyChecking=no root@3.83.236.235 'cd /home/e91user/e91test && docker build -t centosapache-image:${env.BUILD_ID} .' "
+                    echo "Starting New dev Container"
+                    sh "ssh -o StrictHostKeyChecking=no root@3.83.236.235 'cd /home/e91user/e91test &&  docker run -d --name dev -p 2018:80 centosapache-image:${env.BUILD_ID}'"
+                }
+                sleep 2
+            }
+            
+        }
+        stage("test-dev-environment"){
+            steps {
+                sshagent (credentials: ['e91user']) {
+                    echo "Testing Dev Container"
+                    sh "ssh -o StrictHostKeyChecking=no root@3.83.236.235 'curl localhost:2018 ' "
+                }
+                sleep 2
+            }
+        }
+        stage("merge-to-stage"){
+            steps {
+                sshagent (credentials: ['e91user']) {
+                    echo "Pulling Updates from dev"
+                    sh "ssh -o StrictHostKeyChecking=no root@52.206.2.238 'cd /home/e91user/e91test && git checkout . && git checkout stage && git pull'"
+                    sh "ssh -o StrictHostKeyChecking=no root@52.206.2.238 'cd /home/e91user/e91test && git merge origin/dev && git push origin stage'"
+                }
+                sleep 2
+            }
+        }
+        stage("build-stage-environment"){
+            steps {
+                sshagent (credentials: ['e91user']) {
+                    echo "Removing Existing staging Container"
+                    sh "ssh -o StrictHostKeyChecking=no root@52.206.2.238 ' docker stop stage || true && docker rm stage || true ' "
+                    echo "Building New Container"
+                    sh "ssh -o StrictHostKeyChecking=no root@52.206.2.238 'cd /home/e91user/e91test && docker build -t centosapache:${env.BUILD_ID} .'"
+                    echo "Starting New Container"
+                    sh "ssh -o StrictHostKeyChecking=no root@52.206.2.238 'cd /home/e91user/e91test &&  docker run -d --name stage -p 2018:80 centosapache:${env.BUILD_ID}'"
+                }
+                sleep 2
+            }
+        }
+        stage("test-stage-environment"){
+            steps {
+                sshagent (credentials: ['e91user']) {
+                    echo "Testing Dev environment"
+                    sh "ssh -o StrictHostKeyChecking=no root@52.206.2.238 'curl localhost:2018 ' "
+                }
+                sleep 2
+            }
+        }   
+    }
+}
